@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: aiogram_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks:
+      - shared-network
+
+networks:
+  shared-network:
+    external: true
+    name: dress-studio-network
