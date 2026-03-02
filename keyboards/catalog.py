@@ -1,87 +1,123 @@
+"""
+keyboards/catalog.py
+
+Флоу:
+  1. Типы        pt:{id}               → текст, без фото
+  2. Модели      pname:{type_id}:{idx} → фото изделия из ready_products
+  3. Цвета       color_screen:{type_id}:{name_idx} → color_palette_url
+  4. Размеры     color:{type_id}:{color_id}        → size_chart_url
+  5. Карточка    size:{type_id}:{color_id}:{label} → image_url товара
+"""
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
 def product_types_kb(types: list[dict]) -> InlineKeyboardMarkup:
-    buttons = [
-        [InlineKeyboardButton(text=t["name"], callback_data=f"pt:{t['id']}")]
-        for t in types
-    ]
-    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="catalog:back")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+    rows = [[InlineKeyboardButton(text=t["name"], callback_data=f"pt:{t['id']}")] for t in types]
+    rows.append([InlineKeyboardButton(text="◀️ Меню", callback_data="catalog:back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def colors_kb(colors: list[dict], type_id: int) -> InlineKeyboardMarkup:
+def product_names_kb(names: list[dict], type_id: int) -> InlineKeyboardMarkup:
     """
-    Кнопки цветов — название + наличие.
-    Точный цвет показываем в подписи к фото (свотч генерируется в хендлере).
+    Список моделей внутри типа.
+    ✗ если ни один цвет не в наличии для этой модели.
     """
-    buttons = []
-    row = []
+    rows = []
+    for i, n in enumerate(names):
+        has_stock = bool(n.get("available_color_ids"))
+        label = n["name"] if has_stock else f"{n['name']} ✗"
+        rows.append([InlineKeyboardButton(text=label, callback_data=f"pname:{type_id}:{i}")])
+    rows.append([InlineKeyboardButton(text="◀️ К типам", callback_data="catalog:types")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def model_detail_kb(type_id: int, name_idx: int) -> InlineKeyboardMarkup:
+    """Кнопки под фото конкретной модели."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎨 Выбрать цвет", callback_data=f"color_screen:{type_id}:{name_idx}")],
+        [InlineKeyboardButton(text="◀️ К моделям",    callback_data=f"pt:{type_id}")],
+    ])
+
+
+def colors_kb(
+    colors: list[dict],
+    type_id: int,
+    name_idx: int,
+    available_color_ids: set[int],
+) -> InlineKeyboardMarkup:
+    """
+    Кнопки цветов. ✗ если нет в наличии для выбранной модели.
+    """
+    rows = []
+    row  = []
     for c in colors:
-        in_stock = c.get("in_stock", True)
-        label = c["color"]["name"] if in_stock else f"{c['color']['name']} ✗"
-        row.append(InlineKeyboardButton(
-            text=label,
-            callback_data=f"color:{type_id}:{c['color']['id']}",
-        ))
+        cid   = c["color"]["id"]
+        label = c["color"]["name"]
+        if cid not in available_color_ids:
+            label = f"{label} ✗"
+        row.append(InlineKeyboardButton(text=label, callback_data=f"color:{type_id}:{cid}"))
         if len(row) == 2:
-            buttons.append(row)
+            rows.append(row)
             row = []
     if row:
-        buttons.append(row)
-    buttons.append([InlineKeyboardButton(text="◀️ К типам", callback_data="catalog:types")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+        rows.append(row)
+    rows.append([InlineKeyboardButton(
+        text="◀️ К модели",
+        callback_data=f"color_screen:{type_id}:{name_idx}",   # назад к экрану фото модели
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def sizes_kb(
     sizes: list[dict],
     type_id: int,
     color_id: int,
-    available_labels: set[str] | None = None,
+    available_labels: set[str],
+    name_idx: int,
 ) -> InlineKeyboardMarkup:
-    buttons = []
-    row = []
+    rows = []
+    row  = []
     for s in sizes:
         label = s["label"]
-        if available_labels is not None:
-            if label in available_labels:
-                btn_text, cb = label, f"size:{type_id}:{color_id}:{label}"
-            else:
-                btn_text, cb = f"{label} ✗", f"size_na:{label}"
+        if label in available_labels:
+            btn, cb = label, f"size:{type_id}:{color_id}:{label}"
         else:
-            btn_text, cb = label, f"size:{type_id}:{color_id}:{label}"
-        row.append(InlineKeyboardButton(text=btn_text, callback_data=cb))
+            btn, cb = f"{label} ✗", f"size_na:{label}"
+        row.append(InlineKeyboardButton(text=btn, callback_data=cb))
         if len(row) == 3:
-            buttons.append(row)
+            rows.append(row)
             row = []
     if row:
-        buttons.append(row)
-    buttons.append([InlineKeyboardButton(text="◀️ К цветам", callback_data=f"pt:{type_id}")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+        rows.append(row)
+    rows.append([InlineKeyboardButton(
+        text="◀️ К цветам",
+        callback_data=f"color_screen:{type_id}:{name_idx}",
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def add_to_cart_kb(product_id: int, type_id: int, color_id: int) -> InlineKeyboardMarkup:
+def add_to_cart_kb(product_id: int, type_id: int, color_id: int, name_idx: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛒 Добавить в корзину", callback_data=f"cart_add:{product_id}:{type_id}:{color_id}")],
-        [InlineKeyboardButton(text="◀️ К размерам", callback_data=f"color:{type_id}:{color_id}")],
+        [InlineKeyboardButton(text="◀️ К размерам",         callback_data=f"color:{type_id}:{color_id}")],
     ])
 
 
-def after_add_kb(type_id: int, color_id: int) -> InlineKeyboardMarkup:
+def after_add_kb(type_id: int, name_idx: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛒 Перейти в корзину",   callback_data="cart:view")],
-        [InlineKeyboardButton(text="🎨 Выбрать другой цвет", callback_data=f"pt:{type_id}")],
+        [InlineKeyboardButton(text="🎨 Выбрать другой цвет", callback_data=f"color_screen:{type_id}:{name_idx}")],
         [InlineKeyboardButton(text="🛍 К типам изделий",     callback_data="catalog:types")],
     ])
 
 
 def cart_kb(has_items: bool) -> InlineKeyboardMarkup:
-    buttons = []
+    rows = []
     if has_items:
-        buttons.append([InlineKeyboardButton(text="✅ Оформить заказ",  callback_data="cart:checkout")])
-        buttons.append([InlineKeyboardButton(text="🗑 Очистить корзину", callback_data="cart:clear")])
-    buttons.append([InlineKeyboardButton(text="🛍 В каталог", callback_data="catalog:types")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+        rows.append([InlineKeyboardButton(text="✅ Оформить заказ",  callback_data="cart:checkout")])
+        rows.append([InlineKeyboardButton(text="🗑 Очистить корзину", callback_data="cart:clear")])
+    rows.append([InlineKeyboardButton(text="🛍 В каталог", callback_data="catalog:types")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def confirm_order_kb() -> InlineKeyboardMarkup:
